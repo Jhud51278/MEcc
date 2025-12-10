@@ -1,86 +1,59 @@
-name: macOS VNC BlackScreen Fix
+Skip to content
+Navigation Menu
+Jhud51278
+MEcc
 
-on:
-  workflow_dispatch:
-
-jobs:
-  macos-session:
-    runs-on: macos-latest
-    timeout-minutes: 60
-
-    env:
-      # ====================================================
-      # ضع كود Base64 المشفر هنا
-      # ====================================================
-      aa1: "dHNrZXktYXV0aC1rc2JSdEZKZDJ0MTFDTlRSTC1yWlk4SjF2SGdZZ3Q4N0NQanFFQ1lnM0ZFMTFGTU1XQlI="
-      
-      # بيانات الدخول
-      NEW_USER: "adminuser"
-      NEW_PASS: "MacPass1234!"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ====================================================
-      # 1. تشغيل Tailscale
-      # ====================================================
-      - name: Install & Connect Tailscale
-        run: |
-          brew install tailscale
-          sudo brew services start tailscale
-          sleep 5
-          
-          ENCODED=$aa1
-          if [ -z "$ENCODED" ]; then echo "Error: Key is empty"; exit 1; fi
-          REAL_KEY=$(echo "$ENCODED" | base64 -d | xargs)
-          
-          # الاتصال
-          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Fix-Screen" --ssh
-          echo "✅ Tailscale IP: $(tailscale ip -4)"
-
-      # ====================================================
-      # 2. إنشاء المستخدم وتفعيل VNC (مع حل الشاشة السوداء)
-      # ====================================================
-      - name: Fix Black Screen & Setup User
-        run: |
-          echo "Creating new admin user: $NEW_USER ..."
-          sudo sysadminctl -addUser $NEW_USER -fullName "Admin User" -password "$NEW_PASS" -admin
-          
-          # 1. منع الكمبيوتر من النوم
-          sudo systemsetup -setcomputersleep Never
-          sudo systemsetup -setdisplaysleep Never
-          
-          # 2. تفعيل VNC
-          echo "Enabling VNC..."
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -access -on \
-          -clientopts -setvnclegacy -vnclegacy yes \
-          -clientopts -setvncpw -vncpw "$NEW_PASS" \
-          -restart -agent -privs -all
-          
-          # 3. محاولة تفعيل الدخول التلقائي (لحل الشاشة السوداء)
-          echo "Configuring Auto Login..."
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "$NEW_USER"
-          
-          # 4. الخطوة الأهم: إعادة تشغيل واجهة الرسوميات لإجبار الشاشة على العمل
-          echo "Restarting WindowServer to force display refresh..."
-          sudo killall -HUP WindowServer || true
-          
-          echo "✅ Configuration Complete!"
-
-      # ====================================================
-      # 3. إبقاء الجلسة
-      # ====================================================
-      - name: Keep Session Alive
-        run: |
-          IP=$(tailscale ip -4)
-          echo "==================================================="
-          echo "🚀 CONNECT NOW!"
-          echo "IP: $IP"
-          echo "Username: $NEW_USER"
-          echo "Password: $NEW_PASS"
-          echo "==================================================="
-          echo "💡 TRICK: If screen is still black, type the password blindly and hit Enter!"
-          
-          while true; do sleep 60; done
+Type / to search
+Code
+Pull requests
+Actions
+Projects
+Wiki
+Security
+Insights
+Settings
+macOS VNC BlackScreen Fix
+macOS VNC BlackScreen Fix #9
+Jobs
+Run details
+macos-session
+failed now in 29s
+Search logs
+2s
+1s
+13s
+7s
+Run echo "Creating new admin user: $NEW_USER ..."
+Creating new admin user: adminuser ...
+2025-12-10 22:40:33.966 sysadminctl[1957:9211] ----------------------------
+2025-12-10 22:40:33.966 sysadminctl[1957:9211] No clear text password or interactive option was specified (adduser, change/reset password will not allow user to use FDE) !
+2025-12-10 22:40:33.966 sysadminctl[1957:9211] ----------------------------
+IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver
+2025-12-10 22:40:34.535 sysadminctl[1957:9211] Creating user record…
+2025-12-10 22:40:35.212 sysadminctl[1957:9211] Assigning UID: 502 GID: 20
+2025-12-10 22:40:36.001 sysadminctl[1957:9211] Creating home directory at /Users/adminuser
+2025-12-10 22:40:36.580 systemsetup[1976:9333] ### Error:-99 File:/AppleInternal/Library/BuildRoots/4~B9VlugAZ8A-ZW2wJ7l-XvzGv9wEqY3p9j8BXOx4/Library/Caches/com.apple.xbs/Sources/Admin/InternetServices.m Line:379
+setcomputersleep: Never
+2025-12-10 22:40:36.607 systemsetup[1979:9344] ### Error:-99 File:/AppleInternal/Library/BuildRoots/4~B9VlugAZ8A-ZW2wJ7l-XvzGv9wEqY3p9j8BXOx4/Library/Caches/com.apple.xbs/Sources/Admin/InternetServices.m Line:379
+setdisplaysleep: Never
+Enabling VNC...
+Starting...
+Screen recording might be disabled. Screen Sharing or Remote Management must be enabled from System Settings or via MDM.
+Screen control might be disabled. Screen Sharing or Remote Management must be enabled from System Settings or via MDM.
+Activated Remote Management.
+Stopped ARD Agent.
+adminuser: Set user remote control privileges.
+adminuser: Set user remote access.
+runner: Set user remote control privileges.
+runner: Set user remote access.
+Set the client options.
+Done.
+Configuring Auto Login...
+Restarting WindowServer to force display refresh...
+✅ Configuration Complete!
+4s
+Run IP=$(tailscale ip -4)
+  
+Error: The operation was canceled.
+0s
+0s
