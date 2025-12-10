@@ -1,84 +1,78 @@
-name: macOS VNC Fixed (dscl)
+name: macOS VNC Final (New User)
 
 on:
   workflow_dispatch:
 
 jobs:
   macos-session:
-    runs-on: macos-latest # أحدث نسخة (تعمل بمعالجات Apple Silicon غالباً)
-    timeout-minutes: 60   # تحذير: استهلاك الرصيد هنا عالٍ جداً
+    runs-on: macos-latest
+    timeout-minutes: 60
 
     env:
-      # ====================================================
-      # ضع كود Base64 المشفر هنا
-      # ====================================================
+      # ضع المفتاح المشفر هنا
       aa1: "dHNrZXktYXV0aC1rc2JSdEZKZDJ0MTFDTlRSTC1yWlk4SjF2SGdZZ3Q4N0NQanFFQ1lnM0ZFMTFGTU1XQlI="
       
-      # كلمة مرور الجلسة (احفظها جيداً للدخول)
-      VNC_PASS: "MacPass1234!"
+      # بيانات المستخدم الجديد الذي سننشئه
+      NEW_USER: "adminuser"
+      NEW_PASS: "MacPass1234!"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       # ====================================================
-      # 1. تثبيت وتشغيل Tailscale (نجح معك سابقاً)
+      # 1. تشغيل Tailscale
       # ====================================================
       - name: Install & Connect Tailscale
         run: |
-          echo "Installing Tailscale..."
           brew install tailscale
-          
-          # تشغيل الخدمة
           sudo brew services start tailscale
           sleep 5
           
           # فك التشفير
           ENCODED=$aa1
           if [ -z "$ENCODED" ]; then echo "Error: Key is empty"; exit 1; fi
-          
-          # فك التشفير
           REAL_KEY=$(echo "$ENCODED" | base64 -d | xargs)
           
           # الاتصال
-          echo "Connecting to Tailscale..."
-          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Runner-$GITHUB_RUN_NUMBER" --ssh
-          
-          # طباعة الـ IP
-          TS_IP=$(tailscale ip -4)
-          echo "✅ Connected! Tailscale IP: $TS_IP"
+          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Action" --ssh
+          echo "✅ Tailscale IP: $(tailscale ip -4)"
 
       # ====================================================
-      # 2. إعداد المستخدم وتفعيل VNC (تم التصحيح هنا)
+      # 2. إنشاء مستخدم جديد (الحل لمشكلة التصريح)
       # ====================================================
-      - name: Setup VNC & User
+      - name: Create Admin User & Enable VNC
         run: |
-          echo "Setting password for user 'runner'..."
+          echo "Creating new admin user: $NEW_USER ..."
           
-          # --- التصحيح: استخدام dscl بدلاً من chpasswd ---
-          # هذا الأمر هو الوحيد الذي يعمل في الماك لتغيير الباسورد
-          sudo dscl . -passwd /Users/runner "$VNC_PASS"
+          # أمر إنشاء مستخدم جديد بصلاحيات أدمن
+          sudo sysadminctl -addUser $NEW_USER -fullName "Admin User" -password "$NEW_PASS" -admin
           
-          echo "Enabling Apple Remote Desktop (VNC)..."
-          # أمر تفعيل المشاركة
+          echo "Enabling VNC for $NEW_USER ..."
+          # تفعيل التحكم عن بعد للمستخدم الجديد
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -activate -configure -access -on \
           -clientopts -setvnclegacy -vnclegacy yes \
-          -clientopts -setvncpw -vncpw "$VNC_PASS" \
+          -clientopts -setvncpw -vncpw "$NEW_PASS" \
           -restart -agent -privs -all
           
-          echo "✅ VNC Enabled on IP: $(tailscale ip -4)"
-          echo "✅ Username: runner"
-          echo "✅ Password: $VNC_PASS"
+          echo "✅ User Created Successfully!"
 
       # ====================================================
-      # 3. إبقاء الجلسة
+      # 3. معلومات الاتصال وإبقاء الجلسة
       # ====================================================
       - name: Keep Session Alive
         run: |
-          echo "Session Started."
-          echo "Use VNC Viewer to connect to: $(tailscale ip -4)"
-          echo "Username: runner"
-          echo "Password: $VNC_PASS"
+          IP=$(tailscale ip -4)
+          echo "==================================================="
+          echo "🚀 READY TO CONNECT!"
+          echo "1. Make sure Tailscale is connected on YOUR PC."
+          echo "2. Open VNC Viewer."
+          echo "3. Connect to IP: $IP"
+          echo "---------------------------------------------------"
+          echo "👤 Username: $NEW_USER"
+          echo "🔑 Password: $NEW_PASS"
+          echo "==================================================="
           
+          # حلقة لا نهائية
           while true; do sleep 60; done
