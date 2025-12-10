@@ -1,4 +1,4 @@
-name: macOS VNC Final (New User)
+name: macOS VNC BlackScreen Fix
 
 on:
   workflow_dispatch:
@@ -9,10 +9,12 @@ jobs:
     timeout-minutes: 60
 
     env:
-      # ضع المفتاح المشفر هنا
+      # ====================================================
+      # ضع كود Base64 المشفر هنا
+      # ====================================================
       aa1: "dHNrZXktYXV0aC1rc2JSdEZKZDJ0MTFDTlRSTC1yWlk4SjF2SGdZZ3Q4N0NQanFFQ1lnM0ZFMTFGTU1XQlI="
       
-      # بيانات المستخدم الجديد الذي سننشئه
+      # بيانات الدخول
       NEW_USER: "adminuser"
       NEW_PASS: "MacPass1234!"
 
@@ -29,50 +31,56 @@ jobs:
           sudo brew services start tailscale
           sleep 5
           
-          # فك التشفير
           ENCODED=$aa1
           if [ -z "$ENCODED" ]; then echo "Error: Key is empty"; exit 1; fi
           REAL_KEY=$(echo "$ENCODED" | base64 -d | xargs)
           
           # الاتصال
-          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Action" --ssh
+          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Fix-Screen" --ssh
           echo "✅ Tailscale IP: $(tailscale ip -4)"
 
       # ====================================================
-      # 2. إنشاء مستخدم جديد (الحل لمشكلة التصريح)
+      # 2. إنشاء المستخدم وتفعيل VNC (مع حل الشاشة السوداء)
       # ====================================================
-      - name: Create Admin User & Enable VNC
+      - name: Fix Black Screen & Setup User
         run: |
           echo "Creating new admin user: $NEW_USER ..."
-          
-          # أمر إنشاء مستخدم جديد بصلاحيات أدمن
           sudo sysadminctl -addUser $NEW_USER -fullName "Admin User" -password "$NEW_PASS" -admin
           
-          echo "Enabling VNC for $NEW_USER ..."
-          # تفعيل التحكم عن بعد للمستخدم الجديد
+          # 1. منع الكمبيوتر من النوم
+          sudo systemsetup -setcomputersleep Never
+          sudo systemsetup -setdisplaysleep Never
+          
+          # 2. تفعيل VNC
+          echo "Enabling VNC..."
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -activate -configure -access -on \
           -clientopts -setvnclegacy -vnclegacy yes \
           -clientopts -setvncpw -vncpw "$NEW_PASS" \
           -restart -agent -privs -all
           
-          echo "✅ User Created Successfully!"
+          # 3. محاولة تفعيل الدخول التلقائي (لحل الشاشة السوداء)
+          echo "Configuring Auto Login..."
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "$NEW_USER"
+          
+          # 4. الخطوة الأهم: إعادة تشغيل واجهة الرسوميات لإجبار الشاشة على العمل
+          echo "Restarting WindowServer to force display refresh..."
+          sudo killall -HUP WindowServer || true
+          
+          echo "✅ Configuration Complete!"
 
       # ====================================================
-      # 3. معلومات الاتصال وإبقاء الجلسة
+      # 3. إبقاء الجلسة
       # ====================================================
       - name: Keep Session Alive
         run: |
           IP=$(tailscale ip -4)
           echo "==================================================="
-          echo "🚀 READY TO CONNECT!"
-          echo "1. Make sure Tailscale is connected on YOUR PC."
-          echo "2. Open VNC Viewer."
-          echo "3. Connect to IP: $IP"
-          echo "---------------------------------------------------"
-          echo "👤 Username: $NEW_USER"
-          echo "🔑 Password: $NEW_PASS"
+          echo "🚀 CONNECT NOW!"
+          echo "IP: $IP"
+          echo "Username: $NEW_USER"
+          echo "Password: $NEW_PASS"
           echo "==================================================="
+          echo "💡 TRICK: If screen is still black, type the password blindly and hit Enter!"
           
-          # حلقة لا نهائية
           while true; do sleep 60; done
