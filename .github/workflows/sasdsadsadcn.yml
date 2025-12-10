@@ -1,4 +1,4 @@
-name: Auto-Retry Encoded  Win 11   mm
+name: Fast Code 30s Win 10 
 on:
   workflow_dispatch:
 
