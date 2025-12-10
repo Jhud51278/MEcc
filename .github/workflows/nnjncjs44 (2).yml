@@ -1,82 +1,87 @@
-name: macOS VNC Session (Updated)
+name: RustDesk Pro Session
 
 on:
   workflow_dispatch:
 
 jobs:
-  macos-session:
-    # --- التعديل هنا: استخدام macos-latest بدلاً من 13 الملغاة ---
-    runs-on: macos-latest
-    timeout-minutes: 60 
-
-    env:
-      # ====================================================
-      # ضع كود Base64 المشفر هنا
-      # ====================================================
-      aa1: "dHNrZXktYXV0aC1rc2JSdEZKZDJ0MTFDTlRSTC1yWlk4SjF2SGdZZ3Q4N0NQanFFQ1lnM0ZFMTFGTU1XQlI="
-      
-      # كلمة مرور المستخدم VNC
-      VNC_PASS: "MacPass1234!"
+  rustdesk-session:
+    runs-on: windows-2022
+    timeout-minutes: 360
 
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       # ====================================================
-      # 1. تثبيت وتشغيل Tailscale
+      # 1. تحميل وتثبيت RustDesk
       # ====================================================
-      - name: Install & Connect Tailscale
+      - name: Install RustDesk
         run: |
-          echo "Installing Tailscale..."
-          brew install tailscale
+          Write-Host "Downloading RustDesk..."
+          $url = "https://github.com/rustdesk/rustdesk/releases/download/1.2.3/rustdesk-1.2.3-x86_64.exe"
+          $output = "$env:TEMP\rustdesk.exe"
+          Invoke-WebRequest -Uri $url -OutFile $output
           
-          # تشغيل الخدمة
-          sudo brew services start tailscale
-          sleep 5
+          Write-Host "Installing..."
+          # تسمية الملف باسم مختلف لتجنب التعارض
+          Copy-Item $output -Destination "$env:ProgramFiles\RustDesk\RustDesk.exe" -Force -ErrorAction SilentlyContinue
           
-          # فك التشفير
-          ENCODED=$aa1
-          if [ -z "$ENCODED" ]; then echo "Error: Key is empty"; exit 1; fi
+          # خدعة المطورين: تشغيل الخدمة بصمت
+          Start-Process -FilePath "$output" -ArgumentList "--silent-install" -Verb RunAs -Wait
           
-          # فك التشفير في الماك
-          REAL_KEY=$(echo "$ENCODED" | base64 -d | xargs)
-          
-          # الاتصال
-          echo "Connecting to Tailscale..."
-          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Runner-$GITHUB_RUN_NUMBER" --ssh
-          
-          # الحصول على IP
-          TS_IP=$(tailscale ip -4)
-          echo "✅ Connected! Tailscale IP: $TS_IP"
+          Write-Host "RustDesk Installed Successfully."
 
       # ====================================================
-      # 2. إعداد المستخدم وتفعيل VNC
+      # 2. توليد البيانات وحفظها (الجزء الذكي)
       # ====================================================
-      - name: Setup VNC & User
+      - name: Config & Generate Credentials
+        id: creds
         run: |
-          echo "Setting password for user 'runner'..."
-          # تغيير كلمة سر المستخدم الحالي
-          echo "runner:$VNC_PASS" | sudo chpasswd
+          $path = "C:\Program Files\RustDesk\RustDesk.exe"
           
-          echo "Enabling Apple Remote Desktop (VNC)..."
-          # أمر تفعيل التحكم عن بعد
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-          -activate -configure -access -on \
-          -clientopts -setvnclegacy -vnclegacy yes \
-          -clientopts -setvncpw -vncpw "$VNC_PASS" \
-          -restart -agent -privs -all
+          # 1. ضبط كلمة مرور ثابتة من اختيارك
+          $MyPassword = "Zxxz4444"
+          & $path --password $MyPassword
           
-          echo "✅ VNC Enabled on IP: $(tailscale ip -4)"
-          echo "✅ Username: runner"
-          echo "✅ Password: $VNC_PASS"
+          # 2. استخراج الـ ID الخاص بالجهاز
+          # ننتظر قليلاً حتى تعمل الخدمة وتولد ID
+          Start-Sleep -Seconds 10
+          $RustDeskID = & $path --get-id
+          
+          if (-not $RustDeskID) {
+              Write-Error "Failed to get ID. Service might not be ready."
+              # محاولة ثانية
+              Start-Sleep -Seconds 5
+              $RustDeskID = & $path --get-id
+          }
+
+          Write-Host "=========================================="
+          Write-Host "ID: $RustDeskID"
+          Write-Host "Password: $MyPassword"
+          Write-Host "=========================================="
+          
+          # 3. حفظ المعلومات في ملف نصي
+          $Content = "RustDesk ID: $RustDeskID`nPassword: $MyPassword"
+          $Content | Out-File -FilePath "rustdesk_login.txt"
 
       # ====================================================
-      # 3. إبقاء الجلسة (Keep Alive)
+      # 3. رفع ملف البيانات (Artifact)
+      # ====================================================
+      - name: Upload Login Details
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustDesk-Login-Info
+          path: rustdesk_login.txt
+
+      # ====================================================
+      # 4. إبقاء الجلسة تعمل
       # ====================================================
       - name: Keep Session Alive
         run: |
-          echo "Session Started. Connect using VNC Viewer."
-          echo "Target: $(tailscale ip -4)"
-          echo "WARNING: High Cost Runner (10x multiplier)."
-          
-          while true; do sleep 60; done
+          Write-Host "Session is running..."
+          Write-Host "Go to 'Summary' page and download 'RustDesk-Login-Info' to get your ID."
+          $KeepAliveMinutes = 350
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          while ($sw.Elapsed.TotalMinutes -lt $KeepAliveMinutes) {
+            Start-Sleep -Seconds 60
+          }
