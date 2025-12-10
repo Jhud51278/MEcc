@@ -1,79 +1,158 @@
-name: Split Files Win11 (Multi-Key)
+name: Auto-Retry Encoded (Win10)
 
 on:
   workflow_dispatch:
 
 jobs:
   deployment:
-    # يعمل على Windows 11
-    runs-on: windows-latest
+    runs-on: windows-2019
     timeout-minutes: 360
 
     env:
       # ====================================================
-      # قائمة مفاتيح Tailscale (مشفرة لتجنب الحذف التلقائي)
+      # المفتاح مشفر بصيغة Base64 (لا تقم بتغييره لفك التشفير هنا)
       # ====================================================
-      # هذا هو المفتاح الذي أرسلته بعد تحويله إلى Base64
       aa1: "dHNrZXktYXV0aC1rUG91TXVnTWQ0MTFDTlRSTC10eUpDRlhFTTJ3VnhzVGJjU0dwenZWWnpxNW15ZkFZZQ=="
 
-      # بيانات المستخدم
+      # باقي المتغيرات
       aa2: "DDDDDDDAAAA"
       aa3: "Zxxz4444"
 
-      # روابط البرامج
+      # الروابط
+      TAILSCALE_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
       NST_URL: "https://tinyurl.com/nstkkdkac44"
       RUST_URL: "https://tinyurl.com/ruskaaaaa11"
       ZIP_URL: "https://tinyurl.com/filesdownlaodkkda45"
-      TAILSCALE_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-
-      # ====================================================
-      # روابط السكربتات
-      # ====================================================
-      RDP_SCRIPT_URL: "https://tinyurl.com/2znxr8ve"
-      ADD_TASKS_URL: "https://tinyurl.com/additionaltasks251"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1) تحميل وتشغيل سكربت RDP & Tailscale (مع فك التشفير)
-      - name: Run RDP & Tailscale Setup
+      # ====================================================
+      # الخطوة 1: إعداد RDP والمستخدمين
+      # ====================================================
+      - name: Setup RDP & Users
         shell: pwsh
         run: |
-          # --- فك تشفير المفتاح في الذاكرة فقط ---
-          $Encoded = $env:aa1
+          Write-Host "==== 1. CONFIGURING RDP ===="
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -Force
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 0 -Force
+          netsh advfirewall firewall set rule group="Remote Desktop" new enable=Yes
+          
+          Write-Host "==== 2. SETTING UP USERS ===="
+          $User = $env:aa2
+          $Pass = $env:aa3
+          $Secure = ConvertTo-SecureString $Pass -AsPlainText -Force
+          
+          $current = $env:USERNAME
+          Set-LocalUser -Name $current -Password $Secure
+          
+          $u = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
+          if (-not $u) {
+              New-LocalUser -Name $User -Password $Secure -FullName $User -AccountNeverExpires
+              Add-LocalGroupMember Administrators $User
+              Add-LocalGroupMember "Remote Desktop Users" $User
+          } else {
+              Set-LocalUser -Name $User -Password $Secure
+          }
+
+      # ====================================================
+      # الخطوة 2: تثبيت والاتصال (مع فك التشفير الآلي)
+      # ====================================================
+      - name: Install & Connect Tailscale (Encoded)
+        shell: pwsh
+        run: |
+          Write-Host "==== 3. INSTALLING TAILSCALE ===="
+          
+          # تثبيت
+          $TsMsi = Join-Path $env:TEMP 'tailscale.msi'
+          Invoke-WebRequest $env:TAILSCALE_URL -OutFile $TsMsi -UseBasicParsing
+          Start-Process msiexec.exe -ArgumentList '/i', $TsMsi, '/quiet', '/norestart' -Wait
+          
+          $TsExe = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
+          $HostName = "RDP-Win10-$env:GITHUB_RUN_NUMBER"
+          
+          # ---------------------------------------------------------
+          # عملية فك التشفير (Decoding)
+          # ---------------------------------------------------------
           try {
-              $Bytes = [System.Convert]::FromBase64String($Encoded)
+              $EncodedKey = $env:aa1
+              # تحويل من Base64 إلى نص عادي
+              $Bytes = [System.Convert]::FromBase64String($EncodedKey)
               $RealKey = [System.Text.Encoding]::UTF8.GetString($Bytes)
               
-              # تحديث المتغير لكي يراه السكربت الخارجي بشكل صحيح
-              $env:aa1 = $RealKey
-              Write-Host "Key decoded successfully in memory."
+              # قناع لإظهار آخر 5 حروف فقط
+              $Masked = $RealKey.Substring($RealKey.Length - 5)
+              Write-Host "Key Decoded Successfully. Ending with: ...$Masked"
           } catch {
-              Write-Error "Failed to decode key."
+              Write-Error "Failed to decode the key!"
               exit 1
           }
-          
-          # --- تحميل وتشغيل السكربت ---
-          Invoke-WebRequest "$env:RDP_SCRIPT_URL" -OutFile "rdp-deploy.ps1"
-          powershell -ExecutionPolicy Bypass ".\rdp-deploy.ps1"
 
-      # 2) تحميل وتشغيل سكربت البرامج
-      - name: Run Software Installation
+          # الاتصال
+          Write-Host "Connecting..."
+          try {
+              # نمرر المفتاح المفكوك للأمر مباشرة دون طباعته
+              $process = Start-Process -FilePath $TsExe -ArgumentList "up --authkey=$RealKey --hostname=$HostName --timeout=25s" -Wait -NoNewWindow -PassThru
+              
+              if ($process.ExitCode -eq 0) {
+                  $ip = & $TsExe ip -4 2>$null
+                  Write-Host ""
+                  Write-Host "✅ CONNECTED!" -ForegroundColor Green
+                  Write-Host " -> Tailscale IP: $ip"
+                  Write-Host " -> Key (Masked): ...$Masked"
+              } else {
+                  throw "Tailscale exit code: $($process.ExitCode)"
+              }
+          }
+          catch {
+              Write-Error "Connection Failed. Check the key."
+              exit 1
+          }
+
+      # ====================================================
+      # الخطوة 3: تثبيت البرامج
+      # ====================================================
+      - name: Install Software
         shell: pwsh
         run: |
-          Invoke-WebRequest "$env:ADD_TASKS_URL" -OutFile "additional-tasks.ps1"
-          powershell -ExecutionPolicy Bypass ".\additional-tasks.ps1"
+          $TempDir = Join-Path $env:TEMP 'install_tasks'
+          New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
+          
+          function Download-File($u, $o) {
+              try { Invoke-WebRequest -Uri $u -OutFile $o -UseBasicParsing -TimeoutSec 600 -ErrorAction Stop; return $true }
+              catch { return $false }
+          }
+          
+          # RustDesk
+          $rustExe = Join-Path $TempDir 'rustdesk-install.exe'
+          if (Download-File $env:RUST_URL $rustExe) {
+              Start-Process -FilePath $rustExe -ArgumentList "--silent-install" -NoNewWindow
+              Start-Sleep -Seconds 10
+          }
 
-      # 3) إبقاء الجلسة تعمل
+          # NST Browser
+          $nstExe = Join-Path $TempDir 'nst.exe'
+          if (Download-File $env:NST_URL $nstExe) {
+              Start-Process -FilePath $nstExe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -NoNewWindow -Wait
+          }
+          
+          # RustDesk Config
+          $installedPath = Join-Path $env:ProgramFiles 'RustDesk\RustDesk.exe'
+          if (Test-Path $installedPath) {
+              & $installedPath --password "Vbbv4444" | Out-Null
+              try { Start-Service rustdesk } catch {}
+          }
+
+      # ====================================================
+      # الخطوة 4: إبقاء الجلسة تعمل
+      # ====================================================
       - name: Keep Session Alive
         shell: pwsh
         run: |
+          Write-Host "==== SESSION STARTED ===="
           $KeepAliveMinutes = 350
-          Write-Host "==== SESSION STARTED: $KeepAliveMinutes Minutes ===="
           $sw = [Diagnostics.Stopwatch]::StartNew()
           while ($sw.Elapsed.TotalMinutes -lt $KeepAliveMinutes) {
-            $left = [math]::Round($KeepAliveMinutes - $sw.Elapsed.TotalMinutes)
-            Write-Host "Alive - $left minutes remaining..."
             Start-Sleep -Seconds 60
           }
