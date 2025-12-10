@@ -1,17 +1,16 @@
-name: macOS VNC Stable
+name: macOS Intel VNC (Stable Display)
 
 on:
   workflow_dispatch:
 
 jobs:
   macos-session:
-    runs-on: macos-latest
+    # استخدام نسخة 12 لأنها تعمل على Intel وتتجنب مشاكل الشاشة السوداء في M1/M2
+    runs-on: macos-12
     timeout-minutes: 60
 
     env:
-      # ضع المفتاح المشفر
       aa1: "dHNrZXktYXV0aC1rc2JSdEZKZDJ0MTFDTlRSTC1yWlk4SjF2SGdZZ3Q4N0NQanFFQ1lnM0ZFMTFGTU1XQlI="
-      
       NEW_USER: "adminuser"
       NEW_PASS: "zxxz1234"
 
@@ -30,24 +29,25 @@ jobs:
           if [ -z "$ENCODED" ]; then echo "Error: Key is empty"; exit 1; fi
           REAL_KEY=$(echo "$ENCODED" | base64 -d | xargs)
           
-          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Stable" --ssh
+          # الاتصال
+          sudo tailscale up --authkey=$REAL_KEY --hostname="Mac-Intel-Display" --ssh
           echo "✅ Tailscale IP: $(tailscale ip -4)"
 
-      # 2. إعداد المستخدم وتفعيل VNC (بدون أوامر خطيرة)
+      # 2. إعداد المستخدم وتفعيل VNC
       - name: Setup User & VNC
         run: |
-          echo "Creating new admin user..."
+          echo "Creating user..."
           sudo sysadminctl -addUser $NEW_USER -fullName "Admin User" -password "$NEW_PASS" -admin
           
-          echo "Enabling VNC..."
+          echo "Configuring VNC..."
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
           -activate -configure -access -on \
           -clientopts -setvnclegacy -vnclegacy yes \
           -clientopts -setvncpw -vncpw "$NEW_PASS" \
           -restart -agent -privs -all
           
-          # محاولة تفعيل الدخول التلقائي بأمان
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "$NEW_USER" || true
+          # تفعيل الدخول التلقائي (يعمل بشكل أفضل على Intel/macOS 12)
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "$NEW_USER"
           
           echo "✅ Ready!"
 
@@ -61,6 +61,5 @@ jobs:
           echo "Username: $NEW_USER"
           echo "Password: $NEW_PASS"
           echo "==================================================="
-          echo "⚠️ IF BLACK SCREEN: Click center, type password blindly, hit Enter."
           
           while true; do sleep 60; done
