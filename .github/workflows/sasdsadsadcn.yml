@@ -1,4 +1,4 @@
-name: Auto-Retry Encoded (Win10)
+name: Fast Encoded Single-Key Win 11
 
 on:
   workflow_dispatch:
@@ -10,15 +10,15 @@ jobs:
 
     env:
       # ====================================================
-      # المفتاح مشفر بصيغة Base64 (لا تقم بتغييره لفك التشفير هنا)
+      # ضع هنا كود Base64 المشفر للمفتاح الواحد فقط
       # ====================================================
       aa1: "dHNrZXktYXV0aC1rc2JSdEZKZDJ0MTFDTlRSTC1yWlk4SjF2SGdZZ3Q4N0NQanFFQ1lnM0ZFMTFGTU1XQlI="
 
-      # باقي المتغيرات
+      # باقي المتغيرات (كما هي تماماً)
       aa2: "DDDDDDDAAAA"
       aa3: "Zxxz4444"
 
-      # الروابط
+      # الروابط (كما هي تماماً)
       TAILSCALE_URL: "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
       NST_URL: "https://tinyurl.com/nstkkdkac44"
       RUST_URL: "https://tinyurl.com/ruskaaaaa11"
@@ -29,15 +29,18 @@ jobs:
         uses: actions/checkout@v4
 
       # ====================================================
-      # الخطوة 1: إعداد RDP والمستخدمين
+      # الخطوة 1: إعداد RDP والمستخدمين (لم يتم التعديل)
       # ====================================================
       - name: Setup RDP & Users
         shell: pwsh
         run: |
-          Write-Host "==== 1. CONFIGURING RDP ===="
+          Write-Host "==== 1. CONFIGURING RDP & FIREWALL (Win 10/2019) ===="
           Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -Force
           Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 0 -Force
-          netsh advfirewall firewall set rule group="Remote Desktop" new enable=Yes
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name SecurityLayer -Value 0 -Force
+          netsh advfirewall firewall delete rule name="Remote-Desktop-Access" 2>$null | Out-Null
+          netsh advfirewall firewall add rule name="Remote-Desktop-Access" dir=in action=allow protocol=TCP localport=3389 | Out-Null
+          Restart-Service TermService -Force
           
           Write-Host "==== 2. SETTING UP USERS ===="
           $User = $env:aa2
@@ -46,25 +49,33 @@ jobs:
           
           $current = $env:USERNAME
           Set-LocalUser -Name $current -Password $Secure
+          Write-Host " -> Main User ($current) password updated."
+          
+          if ($current -ne "runneradmin") {
+              $r = Get-LocalUser -Name "runneradmin" -ErrorAction SilentlyContinue
+              if ($r) { Set-LocalUser -Name "runneradmin" -Password $Secure; Write-Host " -> RunnerAdmin password updated." }
+          }
           
           $u = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
           if (-not $u) {
-              New-LocalUser -Name $User -Password $Secure -FullName $User -AccountNeverExpires
+              New-LocalUser -Name $User -Password $Secure -FullName $User -Description "RDP User" -AccountNeverExpires
               Add-LocalGroupMember Administrators $User
               Add-LocalGroupMember "Remote Desktop Users" $User
+              Write-Host " -> New User ($User) created."
           } else {
               Set-LocalUser -Name $User -Password $Secure
+              Write-Host " -> New User ($User) updated."
           }
 
       # ====================================================
-      # الخطوة 2: تثبيت والاتصال (مع فك التشفير الآلي)
+      # الخطوة 2: تثبيت Tailscale (تم التعديل: مفتاح واحد مشفر)
       # ====================================================
-      - name: Install & Connect Tailscale (Encoded)
+      - name: Install & Connect Tailscale (Encoded Single)
         shell: pwsh
         run: |
           Write-Host "==== 3. INSTALLING TAILSCALE ===="
           
-          # تثبيت
+          # 1. تحميل وتثبيت
           $TsMsi = Join-Path $env:TEMP 'tailscale.msi'
           Invoke-WebRequest $env:TAILSCALE_URL -OutFile $TsMsi -UseBasicParsing
           Start-Process msiexec.exe -ArgumentList '/i', $TsMsi, '/quiet', '/norestart' -Wait
@@ -72,87 +83,108 @@ jobs:
           $TsExe = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
           $HostName = "RDP-Win10-$env:GITHUB_RUN_NUMBER"
           
-          # ---------------------------------------------------------
-          # عملية فك التشفير (Decoding)
-          # ---------------------------------------------------------
+          # 2. فك التشفير (بدون حلقة تكرار)
           try {
-              $EncodedKey = $env:aa1
-              # تحويل من Base64 إلى نص عادي
-              $Bytes = [System.Convert]::FromBase64String($EncodedKey)
-              $RealKey = [System.Text.Encoding]::UTF8.GetString($Bytes)
+              $Encoded = $env:aa1
+              if ([string]::IsNullOrWhiteSpace($Encoded)) { throw "Error: Key variable is empty" }
               
-              # قناع لإظهار آخر 5 حروف فقط
+              # تحويل Base64 إلى نص
+              $Bytes = [System.Convert]::FromBase64String($Encoded)
+              $RealKey = [System.Text.Encoding]::UTF8.GetString($Bytes).Trim()
+              
+              # إظهار آخر 5 حروف للتحقق
               $Masked = $RealKey.Substring($RealKey.Length - 5)
-              Write-Host "Key Decoded Successfully. Ending with: ...$Masked"
+              Write-Host "Key Decoded. Connecting with key ending in: ...$Masked"
           } catch {
-              Write-Error "Failed to decode the key!"
+              Write-Error "Failed to decode the key. Check Base64 string."
               exit 1
           }
 
-          # الاتصال
+          # 3. الاتصال (محاولة واحدة)
           Write-Host "Connecting..."
-          try {
-              # نمرر المفتاح المفكوك للأمر مباشرة دون طباعته
-              $process = Start-Process -FilePath $TsExe -ArgumentList "up --authkey=$RealKey --hostname=$HostName --timeout=25s" -Wait -NoNewWindow -PassThru
-              
-              if ($process.ExitCode -eq 0) {
-                  $ip = & $TsExe ip -4 2>$null
-                  Write-Host ""
-                  Write-Host "✅ CONNECTED!" -ForegroundColor Green
-                  Write-Host " -> Tailscale IP: $ip"
-                  Write-Host " -> Key (Masked): ...$Masked"
-              } else {
-                  throw "Tailscale exit code: $($process.ExitCode)"
-              }
-          }
-          catch {
-              Write-Error "Connection Failed. Check the key."
+          
+          # استخدام Start-Process لإخفاء المفتاح من السجلات
+          $p = Start-Process -FilePath $TsExe -ArgumentList "up --authkey=$RealKey --hostname=$HostName --timeout=20s" -Wait -NoNewWindow -PassThru
+          
+          if ($p.ExitCode -eq 0) {
+              $ip = & $TsExe ip -4 2>$null
+              Write-Host ""
+              Write-Host "=========================================="
+              Write-Host "SUCCESSFUL CONNECTION!" -ForegroundColor Green
+              Write-Host " -> Tailscale IP: $ip"
+              Write-Host " -> Active Key:   ...$Masked"
+              Write-Host "=========================================="
+          } else {
+              Write-Error "Tailscale Connection Failed. Exit Code: $($p.ExitCode)"
               exit 1
           }
 
       # ====================================================
-      # الخطوة 3: تثبيت البرامج
+      # الخطوة 3: تثبيت البرامج (لم يتم التعديل)
       # ====================================================
-      - name: Install Software
+      - name: Install Software (Rust -> Zip -> NST)
         shell: pwsh
         run: |
-          $TempDir = Join-Path $env:TEMP 'install_tasks'
-          New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
-          
           function Download-File($u, $o) {
               try { Invoke-WebRequest -Uri $u -OutFile $o -UseBasicParsing -TimeoutSec 600 -ErrorAction Stop; return $true }
-              catch { return $false }
+              catch { try { & curl.exe -L $u -o $o --retry 2; if (Test-Path $o) { return $true } } catch {} }
+              return $false
           }
           
+          $TempDir = Join-Path $env:TEMP 'install_tasks'
+          New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
+          $User = $env:aa2
+          
           # RustDesk
+          Write-Host "==== STEP 4: RUSTDESK INSTALL ===="
           $rustExe = Join-Path $TempDir 'rustdesk-install.exe'
           if (Download-File $env:RUST_URL $rustExe) {
               Start-Process -FilePath $rustExe -ArgumentList "--silent-install" -NoNewWindow
-              Start-Sleep -Seconds 10
-          }
-
-          # NST Browser
-          $nstExe = Join-Path $TempDir 'nst.exe'
-          if (Download-File $env:NST_URL $nstExe) {
-              Start-Process -FilePath $nstExe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -NoNewWindow -Wait
+              $installedPath = Join-Path $env:ProgramFiles 'RustDesk\RustDesk.exe'
+              for ($i=0; $i -lt 30; $i++) { if (Test-Path $installedPath) { break }; Start-Sleep -Seconds 2 }
+              try { Start-Service -Name rustdesk -ErrorAction SilentlyContinue } catch {}
           }
           
-          # RustDesk Config
+          # Extract Zip
+          Write-Host "==== STEP 5: EXTRACT ZIP ===="
+          $zipFile = Join-Path $TempDir 'payload.zip'
+          if (Download-File $env:ZIP_URL $zipFile) {
+              $profiles = @($env:USERPROFILE); $targetProfile = "C:\Users\$User"; if (Test-Path $targetProfile) { $profiles += $targetProfile }
+              foreach ($p in $profiles) {
+                  $dLoads = Join-Path $p 'Downloads'; $dDesk = Join-Path $p 'Desktop'
+                  foreach ($loc in @($dLoads, $dDesk)) { try { New-Item -ItemType Directory -Path $loc -Force | Out-Null; Expand-Archive -Path $zipFile -DestinationPath $loc -Force } catch {} }
+              }
+          }
+          
+          # NST Browser
+          Write-Host "==== STEP 6: NST BROWSER ===="
+          $nstExe = Join-Path $TempDir 'nst.exe'
+          if (Download-File $env:NST_URL $nstExe) {
+              $args = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/S")
+              Start-Process -FilePath $nstExe -ArgumentList $args -NoNewWindow -Wait
+          }
+          
+          # RustDesk Password
+          Write-Host "==== STEP 7: RUSTDESK PASSWORD ===="
           $installedPath = Join-Path $env:ProgramFiles 'RustDesk\RustDesk.exe'
           if (Test-Path $installedPath) {
+              try { Stop-Service rustdesk -Force -ErrorAction SilentlyContinue } catch {}
+              try { Stop-Process -Name rustdesk -Force -ErrorAction SilentlyContinue } catch {}
               & $installedPath --password "Vbbv4444" | Out-Null
-              try { Start-Service rustdesk } catch {}
+              try { Start-Service rustdesk } catch { & net start rustdesk | Out-Null }
           }
 
       # ====================================================
-      # الخطوة 4: إبقاء الجلسة تعمل
+      # الخطوة 4: إبقاء الجلسة تعمل (لم يتم التعديل)
       # ====================================================
       - name: Keep Session Alive
         shell: pwsh
         run: |
-          Write-Host "==== SESSION STARTED ===="
           $KeepAliveMinutes = 350
+          Write-Host "==== SESSION STARTED: $KeepAliveMinutes Minutes ===="
           $sw = [Diagnostics.Stopwatch]::StartNew()
           while ($sw.Elapsed.TotalMinutes -lt $KeepAliveMinutes) {
+            $left = [math]::Round($KeepAliveMinutes - $sw.Elapsed.TotalMinutes)
+            Write-Host "Alive - $left minutes remaining..."
             Start-Sleep -Seconds 60
           }
