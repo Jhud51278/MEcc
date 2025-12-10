@@ -12,7 +12,7 @@ jobs:
       # ====================================================
       # المفتاح مشفر بصيغة Base64 (لا تقم بتغييره لفك التشفير هنا)
       # ====================================================
-      aa1: "dHNrZXktYXV0aC1rUG91TXVnTWQ0MTFDTlRSTC10eUpDRlhFTTJ3VnhzVGJjU0dwenZWWnpxNW15ZkFZZQ=="
+      aa1: "dHNrZXktYXV0aC1rc2JSdEZKZDJ0MTFDTlRSTC1yWlk4SjF2SGdZZ3Q4N0NQanFFQ1lnM0ZFMTFGTU1XQlI="
 
       # باقي المتغيرات
       aa2: "DDDDDDDAAAA"
